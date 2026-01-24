@@ -60,6 +60,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: frankenphp
+          ref: windows
           persist-credentials: false
 
       - name: Set FRANKENPHP_VERSION
