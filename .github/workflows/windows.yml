@@ -86,7 +86,7 @@ jobs:
 
       - name: Install Vcpkg Libraries
         working-directory: frankenphp
-        run: "vcpkg install pthreads brotli --triplet x64-windows"
+        run: "vcpkg install"
 
       - name: Download Watcher
         run: |
