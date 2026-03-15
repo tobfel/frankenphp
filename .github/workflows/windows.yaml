@@ -192,6 +192,23 @@ jobs:
 
       - name: Build FrankenPHP
         run: |
+          go get github.com/abiosoft/caddy-exec
+          go get github.com/baldinof/caddy-supervisor
+          go get github.com/caddy-dns/desec
+          go get github.com/caddyserver/replace-response
+          go get github.com/caddyserver/transform-encoder
+          go get github.com/corazawaf/coraza-caddy/v2
+          go get github.com/greenpau/caddy-security
+          go get github.com/hslatman/caddy-crowdsec-bouncer
+          go get github.com/hslatman/caddy-crowdsec-bouncer/appsec
+          go get github.com/hslatman/caddy-crowdsec-bouncer/http
+          go get github.com/hslatman/caddy-crowdsec-bouncer/layer4
+          go get github.com/mholt/caddy-dynamicdns
+          go get github.com/mholt/caddy-events-exec
+          go get github.com/mholt/caddy-webdav
+          go get github.com/porech/caddy-maxmind-geolocation
+          go get github.com/sagikazarmark/caddy-fs-s3
+          go get github.com/steffenbusch/caddy-postauth-2fa
           $customVersion = "FrankenPHP $env:FRANKENPHP_VERSION PHP $env:PHP_VERSION Caddy"
           go build -ldflags="-extldflags=-fuse-ld=lld -X 'github.com/caddyserver/caddy/v2.CustomVersion=$customVersion' -X 'github.com/caddyserver/caddy/v2/modules/caddyhttp.ServerHeader=FrankenPHP Caddy'"
         working-directory: frankenphp\caddy\frankenphp
