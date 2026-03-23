@@ -23,8 +23,9 @@ import (
 	_ "github.com/mholt/caddy-dynamicdns"
 	_ "github.com/mholt/caddy-events-exec"
 	_ "github.com/mholt/caddy-webdav"
-	_ "github.com/porech/caddy-maxmind-geolocation"
 	_ "github.com/sagikazarmark/caddy-fs-s3"
+	_ "github.com/jpillora/ipfilter-caddy"
+	_ "github.com/anujc4/caddy-geoblock"
 )
 
 func main() {
