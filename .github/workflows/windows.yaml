@@ -209,6 +209,8 @@ jobs:
           go get github.com/porech/caddy-maxmind-geolocation
           go get github.com/sagikazarmark/caddy-fs-s3
           go get github.com/steffenbusch/caddy-postauth-2fa
+          go get github.com/anujc4/caddy-geoblock
+          go get github.com/jpillora/ipfilter-caddy
           $customVersion = "FrankenPHP $env:FRANKENPHP_VERSION PHP $env:PHP_VERSION Caddy"
           go build -ldflags="-extldflags=-fuse-ld=lld -X 'github.com/caddyserver/caddy/v2.CustomVersion=$customVersion' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp' -X 'github.com/caddyserver/caddy/v2/modules/caddyhttp.ServerHeader=FrankenPHP Caddy'"
         working-directory: frankenphp\caddy\frankenphp
