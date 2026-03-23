@@ -206,7 +206,6 @@ jobs:
           go get github.com/mholt/caddy-dynamicdns
           go get github.com/mholt/caddy-events-exec
           go get github.com/mholt/caddy-webdav
-          go get github.com/porech/caddy-maxmind-geolocation
           go get github.com/sagikazarmark/caddy-fs-s3
           go get github.com/steffenbusch/caddy-postauth-2fa
           go get github.com/anujc4/caddy-geoblock
