@@ -27,6 +27,7 @@ import (
 	_ "github.com/jpillora/ipfilter-caddy"
 	_ "github.com/anujc4/caddy-geoblock"
 	_ "github.com/mholt/caddy-ratelimit"
+	_ "github.com/steffenbusch/caddy-postauth-2fa"
 )
 
 func main() {
