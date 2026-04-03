@@ -158,7 +158,8 @@ jobs:
           go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
 
           $major = 0; $minor = 0; $patch = 0; $build = 0
-          if ($env:FRANKENPHP_VERSION -match '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$') {
+          $bin_version = "1.12.1"
+          if ($bin_version -match '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$') {
             $major = [int]$Matches['major']
             $minor = [int]$Matches['minor']
             $patch = [int]$Matches['patch']
@@ -172,12 +173,12 @@ jobs:
             StringFileInfo = @{
               CompanyName = "FrankenPHP"
               FileDescription = "The modern PHP app server"
-              FileVersion = "1.12.1"
+              FileVersion = $bin_version
               InternalName = "frankenphp"
               OriginalFilename = "frankenphp.exe"
               LegalCopyright = "(c) 2022 Kévin Dunglas, MIT License"
               ProductName = "FrankenPHP"
-              ProductVersion = "1.12.1"
+              ProductVersion = $bin_version
               Comments = "https://frankenphp.dev/"
             }
             VarFileInfo = @{
