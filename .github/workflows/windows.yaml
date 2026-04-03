@@ -172,12 +172,12 @@ jobs:
             StringFileInfo = @{
               CompanyName = "FrankenPHP"
               FileDescription = "The modern PHP app server"
-              FileVersion = $env:FRANKENPHP_VERSION
+              FileVersion = "1.12.1"
               InternalName = "frankenphp"
               OriginalFilename = "frankenphp.exe"
               LegalCopyright = "(c) 2022 Kévin Dunglas, MIT License"
               ProductName = "FrankenPHP"
-              ProductVersion = $env:FRANKENPHP_VERSION
+              ProductVersion = "1.12.1"
               Comments = "https://frankenphp.dev/"
             }
             VarFileInfo = @{
