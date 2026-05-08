@@ -15,7 +15,6 @@ import (
 	_ "github.com/dunglas/frankenphp/caddy"
 	_ "github.com/dunglas/mercure/caddy"
 	_ "github.com/dunglas/vulcain/caddy"
-	_ "github.com/greenpau/caddy-security"
 	_ "github.com/hslatman/caddy-crowdsec-bouncer"
 	_ "github.com/hslatman/caddy-crowdsec-bouncer/appsec"
 	_ "github.com/hslatman/caddy-crowdsec-bouncer/http"
