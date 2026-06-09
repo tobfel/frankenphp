@@ -8,9 +8,9 @@ import (
 	_ "github.com/baldinof/caddy-supervisor"
 	_ "github.com/caddy-dns/desec"
 	_ "github.com/caddyserver/caddy/v2/modules/standard"
-	_ "github.com/caddyserver/replace-response"
+	//_ "github.com/caddyserver/replace-response"
 	_ "github.com/caddyserver/transform-encoder"
-	_ "github.com/corazawaf/coraza-caddy/v2"
+	//_ "github.com/corazawaf/coraza-caddy/v2"
 	_ "github.com/dunglas/caddy-cbrotli"
 	_ "github.com/dunglas/frankenphp/caddy"
 	_ "github.com/dunglas/mercure/caddy"
@@ -27,6 +27,9 @@ import (
 	_ "github.com/anujc4/caddy-geoblock"
 	_ "github.com/mholt/caddy-ratelimit"
 	_ "github.com/steffenbusch/caddy-postauth-2fa"
+	_ "github.com/fabriziosalmi/caddy-waf"
+    _ "github.com/fabriziosalmi/caddy-mib"
+          
 )
 
 func main() {
