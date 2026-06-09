@@ -184,10 +184,10 @@ jobs:
           go get github.com/abiosoft/caddy-exec
           go get github.com/baldinof/caddy-supervisor
           go get github.com/caddy-dns/desec
-          go get github.com/caddyserver/replace-response
+          #go get github.com/caddyserver/replace-response
           go get github.com/caddyserver/transform-encoder
-          go get github.com/corazawaf/coraza-caddy/v2
-          go get github.com/greenpau/caddy-security
+          #go get github.com/corazawaf/coraza-caddy/v2
+          #go get github.com/greenpau/caddy-security
           go get github.com/hslatman/caddy-crowdsec-bouncer
           go get github.com/hslatman/caddy-crowdsec-bouncer/appsec
           go get github.com/hslatman/caddy-crowdsec-bouncer/http
@@ -200,6 +200,7 @@ jobs:
           go get github.com/anujc4/caddy-geoblock
           go get github.com/jpillora/ipfilter-caddy
           go get github.com/mholt/caddy-ratelimit
+          go get github.com/fabriziosalmi/caddy-waf
           $customVersion = "FrankenPHP $env:FRANKENPHP_VERSION PHP $env:PHP_VERSION Caddy"
           go build -ldflags="-extldflags=-fuse-ld=lld -X 'github.com/caddyserver/caddy/v2.CustomVersion=$customVersion' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp' -X 'github.com/caddyserver/caddy/v2/modules/caddyhttp.ServerHeader=FrankenPHP Caddy'"
         working-directory: frankenphp\caddy\frankenphp
