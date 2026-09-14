@@ -1056,8 +1056,9 @@ PHP_FUNCTION(frankenphp_test_persist_roundtrip) {
 
   if (!persistent_zval_validate(input)) {
     zend_throw_exception(spl_ce_LogicException,
-                         "persistent_zval: value type not supported "
-                         "(only scalars, arrays, and enums are allowed)",
+                         "persistent_zval: value not supported (only "
+                         "scalars, arrays, and enums are allowed, nested "
+                         "no deeper than PERSISTENT_ZVAL_MAX_DEPTH)",
                          0);
     RETURN_THROWS();
   }
@@ -1830,6 +1831,7 @@ int register_internal_extensions(void) {
     }
   }
 
+  pefree(modules, 1);
   modules = NULL;
   modules_len = 0;
 
@@ -1837,7 +1839,8 @@ int register_internal_extensions(void) {
 }
 
 void register_extensions(zend_module_entry **m, int len) {
-  modules = m;
+  modules = pemalloc(len * sizeof(*modules), 1);
+  memcpy(modules, m, len * sizeof(*modules));
   modules_len = len;
 
   original_php_register_internal_extensions_func =
