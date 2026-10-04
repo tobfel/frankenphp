@@ -192,6 +192,13 @@ jobs:
         env:
           FRANKENPHP_VERSION: ${{ steps.version.outputs.version }}
 
+      - name: Sync Go modules
+        shell: pwsh
+        working-directory: ${{ github.workspace }}\frankenphp\caddy
+        run: |
+          go mod download
+          go mod tidy
+      
       - name: Build FrankenPHP
         if: env.BUILD_RELEASE == 'true'
         run: |
