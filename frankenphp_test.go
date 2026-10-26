@@ -853,6 +853,16 @@ func TestPutenvDoesNotLeakToOSEnvironment(t *testing.T) {
 	}, &testOptions{nbParallelRequests: 1})
 }
 
+// putenv() in a shutdown function must not leave the next script on the thread a freed sandbox.
+func TestPutenvInShutdownFunction(t *testing.T) {
+	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, _ int) {
+		for range 3 {
+			body, _ := testGet("http://example.com/env/putenv-in-shutdown.php?put=1", handler, t)
+			assert.Equal(t, "false", body)
+		}
+	}, &testOptions{nbParallelRequests: 1, initOpts: []frankenphp.Option{frankenphp.WithNumThreads(1)}})
+}
+
 // TODO: should it actually get reset in worker mode?
 func TestEnvIsNotResetInWorkerMode(t *testing.T) {
 	assert.NoError(t, os.Setenv("index", ""))
@@ -1250,7 +1260,15 @@ func TestLastErrorsNoLeakBetweenRequests_worker(t *testing.T) {
 		LibxmlErrors    *[]string `json:"libxml_errors"`
 		LibxmlLastError *string   `json:"libxml_last_error"`
 		InternalErrors  *bool     `json:"internal_errors"`
+		LastResponse    *[]string `json:"last_response_headers"`
+		Strtok          any       `json:"strtok"`
+		Rewriter        *bool     `json:"rewriter"`
 	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Secret", r.URL.Query().Get("s"))
+	}))
+	t.Cleanup(upstream.Close)
 
 	get := func(url string, handler func(http.ResponseWriter, *http.Request)) lastErrors {
 		body, _ := testGet(url, handler, t)
@@ -1262,12 +1280,21 @@ func TestLastErrorsNoLeakBetweenRequests_worker(t *testing.T) {
 	}
 
 	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, i int) {
-		leaked := get(fmt.Sprintf("http://example.com/worker-last-errors.php?leak=%d", i), handler)
+		fetch := url.QueryEscape(fmt.Sprintf("%s/?s=secret_%d", upstream.URL, i))
+		leaked := get(fmt.Sprintf("http://example.com/worker-last-errors.php?leak=%d&fetch=%s", i, fetch), handler)
 		require.NotNil(t, leaked.LastError)
 		assert.Equal(t, fmt.Sprintf("secret %d", i), *leaked.LastError)
 
 		e := get("http://example.com/worker-last-errors.php", handler)
 		assert.Nil(t, e.LastError)
+		assert.Equal(t, false, e.Strtok)
+		require.NotNil(t, e.Rewriter)
+		assert.True(t, *e.Rewriter, "the URL rewriter must restart in each request")
+
+		if leaked.LastResponse != nil {
+			assert.Contains(t, *leaked.LastResponse, fmt.Sprintf("X-Secret: secret_%d", i))
+			assert.Nil(t, e.LastResponse)
+		}
 
 		if leaked.LibxmlErrors == nil {
 			t.Log("libxml not available, skipping libxml assertions")
@@ -1697,8 +1724,8 @@ func testOutOfMemory(t *testing.T, opts *testOptions) {
 		body, _ = testGet("http://example.com/out-of-memory.php", handler, t)
 		assert.Equal(t, "ok", body)
 
-		// $_GET is populated before the script runs; stay under the hard limit (twice memory_limit), past which PHP exits
-		body, _ = testGet("http://example.com/out-of-memory.php?q="+strings.Repeat("a", 5<<20), handler, t)
+		// $_GET is populated before the script runs; its copies (4 in worker mode) must cross memory_limit but stay under the hard limit (twice memory_limit), past which PHP exits
+		body, _ = testGet("http://example.com/out-of-memory.php?q="+strings.Repeat("a", 3<<20), handler, t)
 		if hardLimit {
 			assert.Contains(t, body, "Allowed memory size of 8388608 bytes exhausted")
 		}
