@@ -22,6 +22,8 @@ on:
         description: "FrankenPHP version"
         required: false
         type: string
+  schedule:
+    - cron: "0 8 * * *"
 
 permissions:
   contents: read
@@ -31,7 +33,7 @@ env:
   GOTOOLCHAIN: local
   GOTESTSUM_FORMAT: pkgname-and-test-fails
   GOFLAGS: "-ldflags=-extldflags=-fuse-ld=lld -tags=nobadger,nomysql,nopgx,deprecated_topic,deprecated_claim"
-  PHP_DOWNLOAD_BASE: "https://windows.php.net/downloads/releases/"
+  PHP_DOWNLOAD_BASE: "https://downloads.php.net/~windows/releases/"
   CC: clang
   CXX: clang++
 
@@ -119,7 +121,7 @@ jobs:
 
       - name: Download PHP
         run: |
-          $webContent = Invoke-WebRequest -Uri $env:PHP_DOWNLOAD_BASE -UseBasicParsing
+          $webContent = Invoke-WebRequest -Uri $env:PHP_DOWNLOAD_BASE
           # Rebuilt binaries get a build number suffix, e.g. php-8.5.12-1-Win32-vs17-x64.zip
           $links = $webContent.Links.Href | Where-Object { $_ -match "php-\d+\.\d+\.\d+(-\d+)?-Win32-vs17-x64\.zip$" }
 
@@ -158,7 +160,7 @@ jobs:
           "$phpBin" >> $env:GITHUB_PATH
 
           "PKG_CONFIG_PATH=$vcpkgRoot\lib\pkgconfig" >> $env:GITHUB_ENV
-          "CGO_CFLAGS=-DFRANKENPHP_VERSION=$env:FRANKENPHP_VERSION -I$vcpkgRoot\include -I$watcherRoot -I$phpDevel\include -I$phpDevel\include\main -I$phpDevel\include\TSRM -I$phpDevel\include\Zend -I$phpDevel\include\ext -I$phpDevel\include\win32" >> $env:GITHUB_ENV
+          "CGO_CFLAGS=-DFRANKENPHP_VERSION=$env:FRANKENPHP_VERSION -I$vcpkgRoot\include -I$watcherRoot -I$phpDevel\include -I$phpDevel\include\main -I$phpDevel\include\TSRM -I$phpDevel\include\Zend -I$phpDevel\include\ext" >> $env:GITHUB_ENV
           "CGO_LDFLAGS=-L$vcpkgRoot\lib -lbrotlienc -L$watcherRoot -llibwatcher-c -L$phpBin -L$phpDevel\lib -lphp8ts -lphp8embed" >> $env:GITHUB_ENV
         env:
           FRANKENPHP_VERSION: ${{ steps.version.outputs.version }}
@@ -169,9 +171,8 @@ jobs:
         run: |
           go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
 
-          $major = 0; $minor = 0; $patch = 0; $build = 1
-          $bin_version = "1.13.0"
-          if ($bin_version -match '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$') {
+          $major = 0; $minor = 0; $patch = 0; $build = 0
+          if ($env:FRANKENPHP_VERSION -match '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$') {
             $major = [int]$Matches['major']
             $minor = [int]$Matches['minor']
             $patch = [int]$Matches['patch']
@@ -185,12 +186,12 @@ jobs:
             StringFileInfo = @{
               CompanyName = "FrankenPHP"
               FileDescription = "The modern PHP app server"
-              FileVersion = $bin_version
+              FileVersion = $env:FRANKENPHP_VERSION
               InternalName = "frankenphp"
               OriginalFilename = "frankenphp.exe"
               LegalCopyright = "(c) 2022 Kévin Dunglas, MIT License"
               ProductName = "FrankenPHP"
-              ProductVersion = $bin_version
+              ProductVersion = $env:FRANKENPHP_VERSION
               Comments = "https://frankenphp.dev/"
             }
             VarFileInfo = @{
@@ -203,39 +204,11 @@ jobs:
         env:
           FRANKENPHP_VERSION: ${{ steps.version.outputs.version }}
 
-      - name: Sync Go modules
-        shell: pwsh
-        working-directory: ${{ github.workspace }}\frankenphp\caddy
-        run: |
-          go mod download
-          go mod tidy
-      
       - name: Build FrankenPHP
         if: env.BUILD_RELEASE == 'true'
         run: |
-          go get github.com/abiosoft/caddy-exec
-          go get github.com/baldinof/caddy-supervisor
-          go get github.com/caddy-dns/desec
-          #go get github.com/caddyserver/replace-response
-          go get github.com/caddyserver/transform-encoder
-          #go get github.com/corazawaf/coraza-caddy/v2
-          go get github.com/greenpau/caddy-security
-          go get github.com/hslatman/caddy-crowdsec-bouncer
-          go get github.com/hslatman/caddy-crowdsec-bouncer/appsec
-          go get github.com/hslatman/caddy-crowdsec-bouncer/http
-          go get github.com/hslatman/caddy-crowdsec-bouncer/layer4
-          go get github.com/mholt/caddy-dynamicdns
-          go get github.com/mholt/caddy-events-exec
-          go get github.com/mholt/caddy-webdav
-          go get github.com/sagikazarmark/caddy-fs-s3
-          go get github.com/steffenbusch/caddy-postauth-2fa
-          go get github.com/anujc4/caddy-geoblock
-          go get github.com/jpillora/ipfilter-caddy
-          go get github.com/mholt/caddy-ratelimit
-          go get github.com/fabriziosalmi/caddy-waf
-          go get github.com/fabriziosalmi/caddy-mib
           $customVersion = "FrankenPHP $env:FRANKENPHP_VERSION PHP $env:PHP_VERSION Caddy"
-          go build -ldflags="-extldflags=-fuse-ld=lld -X 'github.com/caddyserver/caddy/v2.CustomVersion=$customVersion' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp' -X 'github.com/caddyserver/caddy/v2.CustomVersion=$customVersion' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp'" -tags="nobadger,nomysql,nopgx,deprecated_topic,deprecated_claim" -o frankenphp.exe .
+          go build -ldflags="-extldflags=-fuse-ld=lld -X 'github.com/caddyserver/caddy/v2.CustomVersion=$customVersion' -X 'github.com/caddyserver/caddy/v2.CustomBinaryName=frankenphp' -X 'github.com/caddyserver/caddy/v2/modules/caddyhttp.ServerHeader=FrankenPHP Caddy'"
         working-directory: frankenphp\caddy\frankenphp
         env:
           FRANKENPHP_VERSION: ${{ steps.version.outputs.version }}
