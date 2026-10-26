@@ -3,5 +3,11 @@
     "brotli",
     "pthreads"
   ],
-  "builtin-baseline": "817892b0ecbc6af994dd6df999c73faf795adbf2"
+  "builtin-baseline": "817892b0ecbc6af994dd6df999c73faf795adbf2",
+  "overrides": [
+    {
+      "name": "brotli",
+      "version": "1.2.1"
+    }
+  ]
 }
