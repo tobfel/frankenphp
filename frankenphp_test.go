@@ -171,6 +171,14 @@ func testHelloWorld(t *testing.T, opts *testOptions) {
 	}, opts)
 }
 
+func TestMissingScript(t *testing.T) {
+	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, _ int) {
+		body, resp := testGet("http://example.com/missing.php", handler, t)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		assert.Equal(t, "No input file specified.\n", body)
+	}, nil)
+}
+
 func TestEnvVarsInPhpIni(t *testing.T) {
 	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, _ int) {
 		body, _ := testGet("http://example.com/ini.php?key=opcache.enable", handler, t)
@@ -244,6 +252,35 @@ func testServerVariable(t *testing.T, opts *testOptions) {
 	}, opts)
 }
 
+func TestRequestEnvOverridesRequestInfo_module(t *testing.T) {
+	testRequestEnvOverridesRequestInfo(t, &testOptions{})
+}
+func TestRequestEnvOverridesRequestInfo_worker(t *testing.T) {
+	testRequestEnvOverridesRequestInfo(t, &testOptions{workerScript: "server-variable.php"})
+}
+func testRequestEnvOverridesRequestInfo(t *testing.T, opts *testOptions) {
+	opts.requestOpts = append(opts.requestOpts, frankenphp.WithRequestEnv(map[string]string{
+		"CONTENT_TYPE":    "env/content-type",
+		"PATH_TRANSLATED": "/env/path/translated",
+		"QUERY_STRING":    "env=query",
+		"REMOTE_USER":     "env-user",
+		"REQUEST_METHOD":  "ENV",
+	}))
+
+	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, i int) {
+		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/server-variable.php/baz/bat?i=%d", i), strings.NewReader("foo"))
+		req.SetBasicAuth("client-user", "password")
+		req.Header.Add("Content-Type", "text/plain")
+		body, _ := testRequest(req, handler, t)
+
+		assert.Contains(t, body, "[CONTENT_TYPE] => env/content-type")
+		assert.Contains(t, body, "[PATH_TRANSLATED] => /env/path/translated")
+		assert.Contains(t, body, "[QUERY_STRING] => env=query")
+		assert.Contains(t, body, "[REMOTE_USER] => env-user")
+		assert.Contains(t, body, "[REQUEST_METHOD] => ENV")
+	}, opts)
+}
+
 func TestPathInfo_module(t *testing.T) { testPathInfo(t, nil) }
 func TestPathInfo_worker(t *testing.T) {
 	testPathInfo(t, &testOptions{workerScript: "server-variable.php"})
@@ -273,6 +310,20 @@ func testPathInfo(t *testing.T, opts *testOptions) {
 		assert.Contains(t, body, "[PATH_TRANSLATED] =>")
 		assert.Contains(t, body, "[SCRIPT_NAME] => /server-variable.php")
 
+	}, opts)
+}
+
+func TestScriptStatIgnoresPathInfo_module(t *testing.T) { testScriptStatIgnoresPathInfo(t, nil) }
+func TestScriptStatIgnoresPathInfo_worker(t *testing.T) {
+	testScriptStatIgnoresPathInfo(t, &testOptions{workerScript: "script-stat.php"})
+}
+func testScriptStatIgnoresPathInfo(t *testing.T, opts *testOptions) {
+	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, i int) {
+		body, _ := testGet("http://example.com/script-stat.php/echo.php", handler, t)
+		assert.Equal(t, "script "+filepath.Join(testDataDir, "echo.php"), body)
+
+		body, _ = testGet("http://example.com/script-stat.php", handler, t)
+		assert.Equal(t, "script unset", body)
 	}, opts)
 }
 
@@ -647,6 +698,18 @@ func testException(t *testing.T, opts *testOptions) {
 
 		assert.Contains(t, body, "hello")
 		assert.Contains(t, body, fmt.Sprintf(`Uncaught Exception: request %d`, i))
+	}, opts)
+}
+
+func TestNegativeExitStatus_module(t *testing.T) { testNegativeExitStatus(t, &testOptions{}) }
+func TestNegativeExitStatus_worker(t *testing.T) {
+	testNegativeExitStatus(t, &testOptions{workerScript: "exit.php"})
+}
+func testNegativeExitStatus(t *testing.T, opts *testOptions) {
+	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, i int) {
+		body, _ := testGet("http://example.com/exit.php?status=-1", handler, t)
+
+		assert.Equal(t, "exiting", body)
 	}, opts)
 }
 
@@ -1254,61 +1317,13 @@ func TestFileStreamInWorkerMode(t *testing.T) {
 	}, &testOptions{workerScript: "file-stream.php", nbParallelRequests: 1, nbWorkers: 1})
 }
 
-func TestLastErrorsNoLeakBetweenRequests_worker(t *testing.T) {
-	type lastErrors struct {
-		LastError       *string   `json:"last_error"`
-		LibxmlErrors    *[]string `json:"libxml_errors"`
-		LibxmlLastError *string   `json:"libxml_last_error"`
-		InternalErrors  *bool     `json:"internal_errors"`
-		LastResponse    *[]string `json:"last_response_headers"`
-		Strtok          any       `json:"strtok"`
-		Rewriter        *bool     `json:"rewriter"`
-	}
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Secret", r.URL.Query().Get("s"))
-	}))
-	t.Cleanup(upstream.Close)
-
-	get := func(url string, handler func(http.ResponseWriter, *http.Request)) lastErrors {
-		body, _ := testGet(url, handler, t)
-
-		var e lastErrors
-		require.NoError(t, json.Unmarshal([]byte(body), &e), body)
-
-		return e
-	}
-
+func TestURLRewriterRestartsBetweenRequests_worker(t *testing.T) {
 	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, i int) {
-		fetch := url.QueryEscape(fmt.Sprintf("%s/?s=secret_%d", upstream.URL, i))
-		leaked := get(fmt.Sprintf("http://example.com/worker-last-errors.php?leak=%d&fetch=%s", i, fetch), handler)
-		require.NotNil(t, leaked.LastError)
-		assert.Equal(t, fmt.Sprintf("secret %d", i), *leaked.LastError)
+		testGet(fmt.Sprintf("http://example.com/worker-url-rewriter.php?leak=%d", i), handler, t)
 
-		e := get("http://example.com/worker-last-errors.php", handler)
-		assert.Nil(t, e.LastError)
-		assert.Equal(t, false, e.Strtok)
-		require.NotNil(t, e.Rewriter)
-		assert.True(t, *e.Rewriter, "the URL rewriter must restart in each request")
-
-		if leaked.LastResponse != nil {
-			assert.Contains(t, *leaked.LastResponse, fmt.Sprintf("X-Secret: secret_%d", i))
-			assert.Nil(t, e.LastResponse)
-		}
-
-		if leaked.LibxmlErrors == nil {
-			t.Log("libxml not available, skipping libxml assertions")
-
-			return
-		}
-
-		require.NotEmpty(t, *leaked.LibxmlErrors)
-		assert.Contains(t, (*leaked.LibxmlErrors)[0], fmt.Sprintf("secret_%d", i))
-
-		assert.Empty(t, *e.LibxmlErrors)
-		assert.Nil(t, e.LibxmlLastError)
-		assert.True(t, *e.InternalErrors)
-	}, &testOptions{workerScript: "worker-last-errors.php", nbParallelRequests: 1, nbWorkers: 1})
+		body, _ := testGet("http://example.com/worker-url-rewriter.php", handler, t)
+		assert.Equal(t, "true", body, "the URL rewriter must restart in each request")
+	}, &testOptions{workerScript: "worker-url-rewriter.php", nbParallelRequests: 1, nbWorkers: 1})
 }
 
 // To run this fuzzing test use: go test -fuzz FuzzRequest

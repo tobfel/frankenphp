@@ -71,6 +71,8 @@ typedef struct frankenphp_server_vars {
   size_t document_root_len;
   char *path_info;
   size_t path_info_len;
+  char *path_translated;
+  size_t path_translated_len;
   char *php_self;
   size_t php_self_len;
   char *document_uri;
@@ -184,7 +186,6 @@ void frankenphp_register_server_vars(zval *track_vars_array,
                                      frankenphp_server_vars vars);
 void frankenphp_add_to_prepared_env(char *name, size_t name_len, char *val,
                                     size_t val_len, size_t size);
-void frankenphp_merge_with_prepared_env(zval *track_vars_array);
 
 zend_string *frankenphp_init_persistent_string(const char *string, size_t len);
 int frankenphp_get_current_memory_limit();

@@ -27,20 +27,6 @@ import (
 	"github.com/dunglas/frankenphp/internal/phpheaders"
 )
 
-// cStringHTTPMethods caches C string versions of common HTTP methods
-// to avoid allocations in pinCString on every request.
-var cStringHTTPMethods = map[string]*C.char{
-	"GET":     C.CString("GET"),
-	"HEAD":    C.CString("HEAD"),
-	"POST":    C.CString("POST"),
-	"PUT":     C.CString("PUT"),
-	"DELETE":  C.CString("DELETE"),
-	"CONNECT": C.CString("CONNECT"),
-	"OPTIONS": C.CString("OPTIONS"),
-	"TRACE":   C.CString("TRACE"),
-	"PATCH":   C.CString("PATCH"),
-}
-
 // computeKnownVariables returns a set of CGI environment variables for the request.
 //
 // TODO: handle this case https://github.com/caddyserver/caddy/issues/3718
@@ -95,6 +81,12 @@ func addKnownVariablesToServer(fc *frankenPHPContext, trackVarsArray *C.zval) {
 
 	phpSelf := fc.scriptName + fc.pathInfo
 
+	// PATH_TRANSLATED is only defined if PATH_INFO is, see http://www.oreilly.com/openbook/cgi/ch02_04.html
+	var pathTranslated string
+	if fc.pathInfo != "" {
+		pathTranslated = sanitizedPathJoin(fc.documentRoot, fc.pathInfo)
+	}
+
 	C.frankenphp_register_server_vars(trackVarsArray, C.frankenphp_server_vars{
 		// approximate total length to avoid array re-hashing:
 		// 28 CGI vars + headers + environment
@@ -111,6 +103,8 @@ func addKnownVariablesToServer(fc *frankenPHPContext, trackVarsArray *C.zval) {
 		document_root_len:   C.size_t(len(fc.documentRoot)),
 		path_info:           toUnsafeChar(fc.pathInfo),
 		path_info_len:       C.size_t(len(fc.pathInfo)),
+		path_translated:     toUnsafeChar(pathTranslated),
+		path_translated_len: C.size_t(len(pathTranslated)),
 		php_self:            toUnsafeChar(phpSelf),
 		php_self_len:        C.size_t(len(phpSelf)),
 		document_uri:        toUnsafeChar(fc.docURI),
@@ -168,22 +162,19 @@ func registerPreparedEnv(fc *frankenPHPContext, preparedEnvLen int) {
 }
 
 //export go_register_server_variables
-func go_register_server_variables(threadIndex C.uintptr_t, trackVarsArray *C.zval) {
+func go_register_server_variables(threadIndex C.uintptr_t, trackVarsArray *C.zval) C.bool {
 	thread := phpThreads[threadIndex]
 	fc := thread.handler.frankenPHPContext()
 
 	if fc.request == nil {
 		// go_update_request_info() never ran
-		return
+		return false
 	}
 
 	addKnownVariablesToServer(fc, trackVarsArray)
 	addHeadersToServer(fc.request, trackVarsArray)
 
-	// The Prepared Environment is registered last and can overwrite any previous values
-	if len(fc.env) != 0 || len(fc.server.env) != 0 {
-		C.frankenphp_merge_with_prepared_env(trackVarsArray)
-	}
+	return C.bool(len(fc.env) != 0 || len(fc.server.env) != 0)
 }
 
 // splitCgiPath splits the request path into SCRIPT_NAME, SCRIPT_FILENAME, PATH_INFO, DOCUMENT_URI
@@ -301,6 +292,9 @@ func go_update_request_info(threadIndex C.uintptr_t, info *C.sapi_request_info) 
 	fc := thread.handler.frankenPHPContext()
 	request := fc.request
 
+	// PHP stats this as the executed script (getlastmod(), session cache limiters...), unlike the PATH_TRANSLATED CGI variable
+	info.path_translated = thread.pinCString(fc.scriptFilename)
+
 	if request == nil {
 		return nil
 	}
@@ -320,10 +314,6 @@ func go_update_request_info(threadIndex C.uintptr_t, info *C.sapi_request_info) 
 
 	if contentType := request.Header.Get("Content-Type"); contentType != "" {
 		info.content_type = thread.pinCString(contentType)
-	}
-
-	if fc.pathInfo != "" {
-		info.path_translated = thread.pinCString(sanitizedPathJoin(fc.documentRoot, fc.pathInfo)) // See: http://www.oreilly.com/openbook/cgi/ch02_04.html
 	}
 
 	info.request_uri = thread.pinCString(fc.requestURI)
@@ -355,7 +345,7 @@ func sanitizedPathJoin(root, reqPath string) string {
 
 	// Clean with "path", not "filepath": on Windows filepath.Clean keeps the
 	// ".." behind a leading "//" (UNC prefix), letting reqPath escape root.
-	relPath := path.Clean("/" + reqPath)[1:]
+	relPath := path.Clean(ensureLeadingSlash(reqPath))[1:]
 	// A cleaned rooted path is always local on POSIX: only Windows needs the check
 	if runtime.GOOS == "windows" && relPath != "" && !filepath.IsLocal(relPath) {
 		// path is unsafe (see https://github.com/golang/go/issues/56336#issuecomment-1416214885)

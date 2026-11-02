@@ -530,36 +530,6 @@ static void frankenphp_reset_session_state(void) {
 }
 #endif
 
-/* php_request_shutdown() frees this state; the worker loop skips it, and a
- * full module teardown would also drop libxml_use_internal_errors() set at
- * worker boot. */
-static void frankenphp_reset_last_errors(void) {
-  if (PG(last_error_message)) {
-    zend_string_release(PG(last_error_message));
-    PG(last_error_message) = NULL;
-  }
-  if (PG(last_error_file)) {
-    zend_string_release(PG(last_error_file));
-    PG(last_error_file) = NULL;
-  }
-  PG(last_error_type) = 0;
-  PG(last_error_lineno) = 0;
-
-#if PHP_VERSION_ID >= 80400
-  /* http_get_last_response_headers() */
-  zval_ptr_dtor(&BG(last_http_headers));
-  ZVAL_UNDEF(&BG(last_http_headers));
-#endif
-
-  /* Called by name to avoid depending on libxml2 headers */
-  zend_function *libxml_clear_errors = zend_hash_str_find_ptr(
-      CG(function_table), ZEND_STRL("libxml_clear_errors"));
-  if (libxml_clear_errors) {
-    zend_call_known_function(libxml_clear_errors, NULL, NULL, NULL, 0, NULL,
-                             NULL);
-  }
-}
-
 /* Adapted from the url_scanner RSHUTDOWN, which isn't exported */
 static void frankenphp_reset_url_scanner(url_adapt_state_ex_t *ctx) {
   smart_str_free(&ctx->result);
@@ -574,13 +544,8 @@ static void frankenphp_reset_url_scanner(url_adapt_state_ex_t *ctx) {
   ctx->attr_type = 0;
 }
 
-/* Request state of the standard extension, freed by its RSHUTDOWN */
+/* Response state of the standard extension, freed by its RSHUTDOWN */
 static void frankenphp_reset_basic_state(void) {
-  if (BG(strtok_string)) {
-    zend_string_release(BG(strtok_string));
-    BG(strtok_string) = NULL;
-  }
-
   /* output_add_rewrite_var() and session.use_trans_sid */
   frankenphp_reset_url_scanner(&BG(url_adapt_session_ex));
   frankenphp_reset_url_scanner(&BG(url_adapt_output_ex));
@@ -609,8 +574,6 @@ static void frankenphp_worker_request_shutdown() {
 #ifdef HAVE_PHP_SESSION
   frankenphp_reset_session_state();
 #endif
-
-  frankenphp_reset_last_errors();
 
   /* Shutdown output layer (send the set HTTP headers, cleanup output handlers,
    * etc.) */
@@ -685,6 +648,11 @@ void get_full_env(zval *track_vars_array) {
 static int frankenphp_worker_request_startup() {
   int retval = SUCCESS;
 
+  /* Use the default error handler while parsing the worker request */
+  zval orig_user_error_handler;
+  ZVAL_COPY_VALUE(&orig_user_error_handler, &EG(user_error_handler));
+  ZVAL_UNDEF(&EG(user_error_handler));
+
   frankenphp_update_request_context();
 
   zend_try {
@@ -746,6 +714,9 @@ static int frankenphp_worker_request_startup() {
   }
   zend_catch { retval = FAILURE; }
   zend_end_try();
+
+  /* Restore the original user error handler */
+  ZVAL_COPY_VALUE(&EG(user_error_handler), &orig_user_error_handler);
 
   SG(sapi_started) = 1;
 
@@ -1493,6 +1464,9 @@ void frankenphp_register_server_vars(zval *track_vars_array,
   FRANKENPHP_REGISTER_VAR(remote_port);
   FRANKENPHP_REGISTER_VAR(document_root);
   FRANKENPHP_REGISTER_VAR(path_info);
+  if (vars.path_translated_len != 0) {
+    FRANKENPHP_REGISTER_VAR(path_translated);
+  }
   FRANKENPHP_REGISTER_VAR(php_self);
   FRANKENPHP_REGISTER_VAR(document_uri);
   FRANKENPHP_REGISTER_VAR(script_filename);
@@ -1524,10 +1498,6 @@ void frankenphp_register_server_vars(zval *track_vars_array,
   ZVAL_EMPTY_STRING(&zv);
   zend_hash_update_ind(ht, frankenphp_strings.auth_type, &zv);
   zend_hash_update_ind(ht, frankenphp_strings.remote_ident, &zv);
-}
-
-void frankenphp_merge_with_prepared_env(zval *track_vars_array) {
-  frankenphp_copy_prepared_env(Z_ARRVAL_P(track_vars_array));
 }
 
 /** Create an immutable zend_string that lasts for the whole process **/
@@ -1576,9 +1546,6 @@ frankenphp_register_variables_from_request_info(zval *track_vars_array) {
       frankenphp_strings.content_type, (char *)SG(request_info).content_type,
       true, track_vars_array);
   frankenphp_register_variable_from_request_info(
-      frankenphp_strings.path_translated, SG(request_info).path_translated,
-      false, track_vars_array);
-  frankenphp_register_variable_from_request_info(
       frankenphp_strings.query_string, SG(request_info).query_string, true,
       track_vars_array);
   frankenphp_register_variable_from_request_info(frankenphp_strings.remote_user,
@@ -1623,10 +1590,16 @@ static void frankenphp_register_variables(zval *track_vars_array) {
    * environment, not values added though putenv
    */
   /* import environment and CGI variables from the request context in go */
-  go_register_server_variables(frankenphp_thread_index(), track_vars_array);
+  bool has_prepared_env =
+      go_register_server_variables(frankenphp_thread_index(), track_vars_array);
 
   /* Some variables are already present in SG(request_info) */
   frankenphp_register_variables_from_request_info(track_vars_array);
+
+  /* The prepared environment is registered last and can overwrite any value */
+  if (has_prepared_env) {
+    frankenphp_copy_prepared_env(Z_ARRVAL_P(track_vars_array));
+  }
 }
 
 static void frankenphp_log_message(const char *message, int syslog_type_int) {
@@ -1701,6 +1674,34 @@ static void set_thread_name(char *thread_name) {
 #elif defined(__FreeBSD__) || defined(__OpenBSD__)
   pthread_set_name_np(pthread_self(), thread_name);
 #endif
+}
+
+/* Like php-fpm, answer a script that can't be opened instead of compiling it */
+static bool open_primary_script(zend_file_handle *file_handle) {
+  bool orig_display_errors = PG(display_errors);
+  PG(display_errors) = 0;
+  zend_result result = zend_stream_open(file_handle);
+  PG(display_errors) = orig_display_errors;
+  if (EXPECTED(result == SUCCESS)) {
+    return true;
+  }
+
+  int open_errno = errno;
+  zend_try {
+    if (open_errno == EACCES) {
+      SG(sapi_headers).http_response_code = 403;
+      PUTS("Access denied.\n");
+    } else {
+      SG(sapi_headers).http_response_code = 404;
+      PUTS("No input file specified.\n");
+    }
+  }
+  zend_catch {}
+  zend_end_try();
+
+  /* a worker whose script disappeared must count as failing */
+  EG(exit_status) = 255;
+  return false;
 }
 
 static inline void reset_sandboxed_environment() {
@@ -1790,7 +1791,9 @@ static void *php_thread(void *arg) {
       EG(exit_status) = 0;
 
       /* Execute the PHP script, potential bailout to zend_catch */
-      php_execute_script(&file_handle);
+      if (EXPECTED(open_primary_script(&file_handle))) {
+        php_execute_script(&file_handle);
+      }
 #ifndef PHP_WIN32
       if (UNEXPECTED(is_forked_child)) {
         _exit(EG(exit_status));
@@ -2124,20 +2127,23 @@ int register_internal_extensions(void) {
     return FAILURE;
   }
 
+  /* modules is kept for the process lifetime: every php_module_startup()
+   * (main thread reboots, a new Init()) registers the modules again */
   for (int i = 0; i < modules_len; i++) {
     if (zend_register_internal_module(modules[i]) == NULL) {
       return FAILURE;
     }
   }
 
-  pefree(modules, 1);
-  modules = NULL;
-  modules_len = 0;
-
   return SUCCESS;
 }
 
 void register_extensions(zend_module_entry **m, int len) {
+  /* install the hook only once, or it would become its own predecessor */
+  if (modules != NULL || len <= 0) {
+    return;
+  }
+
   modules = pemalloc(len * sizeof(*modules), 1);
   memcpy(modules, m, len * sizeof(*modules));
   modules_len = len;

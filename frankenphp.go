@@ -20,6 +20,7 @@ package frankenphp
 // #include <SAPI.h>
 import "C"
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -502,11 +503,6 @@ func shutdown() {
 
 	metrics.Shutdown()
 
-	// Remove the installed app
-	if EmbeddedAppPath != "" {
-		_ = os.RemoveAll(EmbeddedAppPath)
-	}
-
 	isRunning.Store(false)
 	if globalLogger.Enabled(globalCtx, slog.LevelDebug) {
 		globalLogger.LogAttrs(globalCtx, slog.LevelDebug, "FrankenPHP shut down")
@@ -623,14 +619,8 @@ func splitRawHeader(rawHeader *C.char, length int) (string, string) {
 	buf := unsafe.Slice((*byte)(unsafe.Pointer(rawHeader)), length)
 
 	// Search for the colon in 'Header-Key: value'
-	var i int
-	for i = 0; i < length; i++ {
-		if buf[i] == ':' {
-			break
-		}
-	}
-
-	if i == length {
+	i := bytes.IndexByte(buf, ':')
+	if i < 0 {
 		return "", "" // No colon found, invalid header
 	}
 
@@ -769,7 +759,8 @@ func go_read_post(threadIndex C.uintptr_t, cBuf *C.char, countBytes C.size_t) (r
 		readBytes += C.size_t(n)
 	}
 
-	if rc != nil {
+	// an expired deadline must stay: net/http drains the unread body before writing the response
+	if rc != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 		_ = rc.SetReadDeadline(time.Time{})
 	}
 
