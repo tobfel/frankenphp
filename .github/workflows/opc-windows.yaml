@@ -5,16 +5,8 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.ref }}
 
+# Nur manuell (gh workflow run / New-WebServerNGRelease.ps1), kein Build bei Push oder PR.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
-    branches:
-      - main
-  push:
-    branches:
-      - main
-    tags:
-      - v*.*.*
   workflow_dispatch:
     inputs:
       #checkov:skip=CKV_GHA_7
