@@ -1,0 +1,84 @@
+---
+# Fork-eigener Ersatz fuer codeql.yaml (Upstream-Workflow ist im Fork deaktiviert,
+# die Datei bleibt unveraendert, damit Upstream-Merges nicht kollidieren).
+# caddy/go.mod bleibt bewusst identisch zu php/frankenphp; die OPC-Module aus
+# caddy/frankenphp/opc_modules.go kommen wie im Build (opc-windows.yaml) erst per go get dazu.
+name: OPC CodeQL
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+  schedule:
+    - cron: "17 4 * * 1"
+permissions:
+  contents: read
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: "-tags=nowatcher,nobadger,nomysql,nopgx"
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: c-cpp
+            build-mode: manual
+          - language: go
+            build-mode: manual
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: matrix.build-mode == 'manual'
+        uses: ./.github/actions/setup-go
+        with:
+          # A warm build cache skips the compiler calls the extractors trace
+          cache: "false"
+      - if: matrix.build-mode == 'manual'
+        uses: ./.github/actions/setup-php
+      - name: Install libbrotli-dev
+        if: matrix.build-mode == 'manual'
+        run: sudo apt-get install -y libbrotli-dev
+      - name: Set CGO flags
+        if: matrix.build-mode == 'manual'
+        run: echo "CGO_CFLAGS=$(php-config --includes)" >> "${GITHUB_ENV}"
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - name: Build
+        if: matrix.build-mode == 'manual'
+        run: go build ./...
+      - name: Add OPC Caddy modules
+        if: matrix.build-mode == 'manual'
+        working-directory: caddy/
+        run: |
+          mapfile -t modules < <(sed -nE 's/^[[:space:]]*_ "([^"]+)".*/\1/p' frankenphp/opc_modules.go)
+          if [ "${#modules[@]}" -eq 0 ]; then echo "::error::keine Module in opc_modules.go gefunden"; exit 1; fi
+          printf '%s\n' "${modules[@]}"
+          go get "${modules[@]}"
+          go mod tidy
+      - name: Build Caddy module
+        if: matrix.build-mode == 'manual'
+        working-directory: caddy/
+        run: go build ./...
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}
