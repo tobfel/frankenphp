@@ -14,6 +14,10 @@ on:
         description: "FrankenPHP version"
         required: false
         type: string
+      file_version:
+        description: "Versionsinfo der frankenphp.exe (x.y.z.w, z.B. WebServerNG-Version); leer = FrankenPHP-Version"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -161,13 +165,21 @@ jobs:
         run: |
           go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
 
-          $major = 0; $minor = 0; $patch = 0; $build = 1
-          $bin_version = "1.13.0"
-          if ($bin_version -match '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$') {
-            $major = [int]$Matches['major']
-            $minor = [int]$Matches['minor']
-            $patch = [int]$Matches['patch']
+          # Vorrang: file_version (x.y.z.w), sonst getaggte FrankenPHP-Version (x.y.z -> x.y.z.0)
+          $bin_version = $env:FILE_VERSION
+          if (-not $bin_version -and $env:FRANKENPHP_VERSION -match '^\d+\.\d+\.\d+$') { $bin_version = "$env:FRANKENPHP_VERSION.0" }
+          if (-not $bin_version) {
+            Write-Warning "Keine Versionsangabe (Branch-Build ohne file_version) - Versionsinfo 0.0.0.0"
+            $bin_version = "0.0.0.0"
           }
+          if ($bin_version -notmatch '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)$') {
+            throw "Ungueltige file_version '$bin_version' (erwartet x.y.z.w)"
+          }
+          $major = [int]$Matches['major']
+          $minor = [int]$Matches['minor']
+          $patch = [int]$Matches['patch']
+          $build = [int]$Matches['build']
+          Write-Host "Versionsinfo frankenphp.exe: $bin_version"
 
           $json = @{
             FixedFileInfo = @{
@@ -194,6 +206,7 @@ jobs:
           goversioninfo -64 -icon ..\..\frankenphp.ico versioninfo.json -o resource.syso
         env:
           FRANKENPHP_VERSION: ${{ steps.version.outputs.version }}
+          FILE_VERSION: ${{ inputs.file_version }}
 
       - name: Sync Go modules
         shell: pwsh
