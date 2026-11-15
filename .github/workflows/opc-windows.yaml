@@ -30,6 +30,10 @@ env:
   PHP_DOWNLOAD_BASE: "https://windows.php.net/downloads/releases/"
   CC: clang
   CXX: clang++
+  # OPC: caddy-supervisor aus dem eigenen Fork (github.com/tobfel/caddy-supervisor) - behebt stehen bleibende Prozesse
+  # nach schnell aufeinander folgenden Config-Reloads, bringt die Option "on_reload keep" und sanftes Beenden unter
+  # Windows. Tag oder Commit des Forks; der Importpfad im Code bleibt github.com/baldinof/caddy-supervisor.
+  OPC_SUPERVISOR_VERSION: v1.1.0-opc.1
 
 jobs:
   build:
@@ -212,6 +216,8 @@ jobs:
         shell: pwsh
         working-directory: ${{ github.workspace }}\frankenphp\caddy
         run: |
+          # vor download/tidy, damit schon die Aufloesung der Importe aus opc_modules.go den Fork nimmt
+          go mod edit -replace "github.com/baldinof/caddy-supervisor=github.com/tobfel/caddy-supervisor@$env:OPC_SUPERVISOR_VERSION"
           go mod download
           go mod tidy
       
