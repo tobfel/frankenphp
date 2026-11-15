@@ -195,7 +195,10 @@ func (f *FrankenPHPModule) ServeHTTP(w http.ResponseWriter, r *http.Request, _ c
 	}
 
 	ctx := r.Context()
-	repl := ctx.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	var repl *caddy.Replacer
+	if f.resolvedDocumentRoot == "" || len(f.requestEnv) > 0 {
+		repl = ctx.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	}
 
 	opts := make([]frankenphp.RequestOption, 0, len(f.requestOptions)+4)
 	opts = append(opts, f.requestOptions...)
@@ -331,16 +334,11 @@ const namedRouteServerIndexBase = 1 << 20
 
 func (f *FrankenPHPModule) assignServerIndex(h httpcaddyfile.Helper) {
 	counter, ok := h.State["php_server_count"].(int)
-	if !ok && inNamedRoute(h) {
+	if !ok && h.IsNamedRoute() {
 		counter = namedRouteServerIndexBase
 	}
 	f.ServerIndex = counter + 1
 	h.State["php_server_count"] = counter + 1
-}
-
-// inNamedRoute relies on Caddy setting the named_routes option only once all named routes are adapted
-func inNamedRoute(h httpcaddyfile.Helper) bool {
-	return h.Option("named_routes") == nil
 }
 
 // parseCaddyfile unmarshals tokens from h into a new Middleware.
