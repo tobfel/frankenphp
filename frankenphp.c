@@ -249,7 +249,45 @@ static void frankenphp_fill_cli_signal_set(sigset_t *s) {
 #endif
 }
 
+#if defined(__linux__)
+/* As PID 1, Go's re-raise of a C-thread fault is dropped and loops forever
+ * (golang/go#59569). Go forwards C faults to handlers installed before it
+ * starts; restoring SIG_DFL lets the re-executed fault kill the process. */
+static void frankenphp_pid1_fatal_signal_handler(int sig, siginfo_t *info,
+                                                 void *context) {
+  (void)info;
+  (void)context;
+  signal(sig, SIG_DFL);
+}
+
+static void frankenphp_install_pid1_fatal_signal_handlers(void) {
+  if (getpid() != 1) {
+    return;
+  }
+
+  static const int signals[] = {SIGSEGV, SIGBUS, SIGFPE};
+  for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
+    struct sigaction previous;
+    if (sigaction(signals[i], NULL, &previous) != 0 ||
+        previous.sa_handler != SIG_DFL) {
+      continue;
+    }
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_sigaction = frankenphp_pid1_fatal_signal_handler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigaction(signals[i], &action, NULL);
+  }
+}
+#endif
+
 __attribute__((constructor)) static void frankenphp_libpreinit(void) {
+#if defined(__linux__)
+  frankenphp_install_pid1_fatal_signal_handlers();
+#endif
+
   sigset_t set;
   frankenphp_fill_cli_signal_set(&set);
   /* Single-threaded at this point (constructors run before Go's runtime),
@@ -776,7 +814,7 @@ PHP_FUNCTION(frankenphp_finish_request) { /* {{{ */
 /* {{{ Sandboxed putenv() that never mutates the process-global OS environment.
  * Writes land only in the thread-local sandboxed_env, so a secret passed to
  * putenv() by one request cannot leak to the Go/Caddy side, to child processes
- * (proc_open, exec, ...), or to other requests. */
+ * (proc_open, exec, ...), or to other threads. */
 PHP_FUNCTION(frankenphp_putenv) {
   char *setting;
   size_t setting_len;
@@ -1688,6 +1726,23 @@ static void frankenphp_register_variables(zval *track_vars_array) {
 }
 
 static void frankenphp_log_message(const char *message, int syslog_type_int) {
+#ifdef PHP_WIN32
+  /* win32/syslog.h doesn't use the standard syslog priority values */
+  switch (syslog_type_int) {
+  case LOG_CRIT:
+    syslog_type_int = 2;
+    break;
+  case LOG_ERR:
+    syslog_type_int = 3;
+    break;
+  case LOG_WARNING:
+    syslog_type_int = 4;
+    break;
+  case LOG_NOTICE:
+    syslog_type_int = 5;
+    break;
+  }
+#endif
   go_log(frankenphp_thread_index(), (char *)message, syslog_type_int);
 }
 
@@ -1873,6 +1928,15 @@ static void *php_thread(void *arg) {
   /* Publish this thread's force-kill slot to Go so the graceful-drain
    * grace period can wake it from a busy PHP loop or blocking syscall. */
   frankenphp_register_thread_for_kill(thread_index);
+
+#if !defined(PHP_WIN32) && defined(SIGURG)
+  /* Must follow this thread's first call into Go, which unblocks SIGURG:
+   * a preemption signal landing in PHP makes system calls fail with EINTR */
+  sigset_t preemption;
+  sigemptyset(&preemption);
+  sigaddset(&preemption, SIGURG);
+  pthread_sigmask(SIG_BLOCK, &preemption, NULL);
+#endif
 
   bool thread_is_healthy = true;
   bool has_attempted_shutdown = false;

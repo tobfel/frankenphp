@@ -42,6 +42,8 @@ Windows archives contain the official PHP binary for Windows.
 
 [Download FrankenPHP](https://github.com/php/frankenphp/releases)
 
+The binaries of the latest release are rebuilt daily to include PHP security fixes. See [how to verify and pin them](https://frankenphp.dev/docs/production/#standalone-binary-updates).
+
 ### rpm packages
 
 Our maintainers offer rpm packages for all systems using `dnf`. To install, run:
@@ -173,6 +175,7 @@ Go to `https://localhost`, and enjoy!
 - [WordPress integration](https://frankenphp.dev/docs/wordpress/)
 - [Symfony integration](https://frankenphp.dev/docs/symfony/)
 - [Laravel integration](https://frankenphp.dev/docs/laravel/)
+- [Yii3 integration](https://frankenphp.dev/docs/yii3/)
 - [Known issues](https://frankenphp.dev/docs/known-issues/)
 - [Demo app (Symfony) and benchmarks](https://github.com/dunglas/frankenphp-demo)
 - [Use as a Go library](https://frankenphp.dev/docs/library/)
@@ -185,6 +188,7 @@ Go to `https://localhost`, and enjoy!
 - [Symfony](https://frankenphp.dev/docs/symfony/)
 - [API Platform](https://api-platform.com/docs/symfony)
 - [Laravel](https://frankenphp.dev/docs/laravel/)
+- [Yii3](https://frankenphp.dev/docs/yii3/)
 - [Sulu](https://sulu.io/blog/running-sulu-with-frankenphp)
 - [WordPress](https://github.com/StephenMiracle/frankenwp)
 - [Drupal](https://github.com/dunglas/frankenphp-drupal)
